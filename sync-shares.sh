@@ -103,7 +103,7 @@ fi
 
 # Create a snapshot to synchronise
 SNAPTIME=$(az storage share-rm snapshot --resource-group $SRC_STORAGE_ACCOUNT_RG_NAME --name $SRC_SHARE_NAME --storage-account $SRC_STORAGE_ACCOUNT_NAME --subscription $SRC_STORAGE_ACCOUNT_SUBSCRIPTION_ID | jq '.snapshotTime')
-SNAPSHOT_URI="https://${SRC_STORAGE_ACCOUNT_NAME}.file.core.windows.net/${SRC_SHARE_NAME}?snapshot=${SNAPTIME}"
+SNAPSHOT_URI="https://${SRC_STORAGE_ACCOUNT_NAME}.file.core.windows.net/${SRC_SHARE_NAME}?sharesnapshot=${SNAPTIME}"
 
 # Remote fileshare exists ? If yes do a sync. If no do a copy
 DST_EXISTS=$(az storage share-rm exists --name ${DST_SHARE_NAME} --resource-group ${DST_STORAGE_ACCOUNT_RG_NAME} --storage-account ${DST_STORAGE_ACCOUNT_NAME} --subscription ${DST_STORAGE_ACCOUNT_SUBSCRIPTION_ID} | jq '.exists')
@@ -111,7 +111,7 @@ DST_EXISTS=$(az storage share-rm exists --name ${DST_SHARE_NAME} --resource-grou
 # Generate short live SAS Key
 SAS_END=$(date -u -d "${SAS_DURATION}" '+%Y-%m-%dT%H:%MZ')
 SRC_SAS=$(az storage share generate-sas --subscription ${SRC_STORAGE_ACCOUNT_SUBSCRIPTION_ID} -n ${SRC_SHARE_NAME} --account-name ${SRC_STORAGE_ACCOUNT_NAME} --https-only --permissions rl --expiry ${SAS_END} -o tsv)
-DST_SAS=$(az storage share generate-sas --subscription ${DST_STORAGE_ACCOUNT_SUBSCRIPTION_ID} -n ${DST_SHARE_NAME} --account-name ${DST_STORAGE_ACCOUNT_NAME} --https-only --permissions rwl --expiry ${SAS_END} -o tsv)
+DST_SAS=$(az storage share generate-sas --subscription ${DST_STORAGE_ACCOUNT_SUBSCRIPTION_ID} -n ${DST_SHARE_NAME} --account-name ${DST_STORAGE_ACCOUNT_NAME} --https-only --permissions rcwdl --expiry ${SAS_END} -o tsv)
 
 azcopy login --identity
 
@@ -121,5 +121,14 @@ else
   SUBCOMMAND="copy"
 fi
 
+# We manage the error manually
+set +e
 azcopy ${SUBCOMMAND} "${SNAPSHOT_URI}&${SRC_SAS}" "https://${DST_STORAGE_ACCOUNT_NAME}.file.core.windows.net/${DST_SHARE_NAME}?${DST_SAS}" --preserve-smb-info --preserve-smb-permissions --recursive
 
+retCode=$?
+
+if [ $retCode -ne 0 ]; then
+  tail -n100 /root/.azcopy/*.log
+fi
+
+exit $retCode
